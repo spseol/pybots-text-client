@@ -10,16 +10,20 @@ SERVER_NAME = 'localhost:44822'
 class MapCursesRenderer(object):
     def __init__(self, screen):
         super().__init__()
-        c.init_pair(1, c.COLOR_BLACK, c.COLOR_BLACK)
-        c.init_pair(2, c.COLOR_YELLOW, c.COLOR_YELLOW)
-        c.init_pair(3, c.COLOR_RED, c.COLOR_RED)
-        c.init_pair(4, c.COLOR_BLUE, c.COLOR_BLUE)
-        c.init_pair(5, c.COLOR_RED, c.COLOR_RED)
         self.main_screen = screen.subwin(0, 0)
         self.main_screen.border(0)
 
         self.map_caption_screen = None
         self.game_map_screen = None
+        self._setup_color_pairs()
+
+    @classmethod
+    def _setup_color_pairs(cls):
+        c.init_pair(1, c.COLOR_BLACK, c.COLOR_BLACK)
+        c.init_pair(2, c.COLOR_YELLOW, c.COLOR_YELLOW)
+        c.init_pair(3, c.COLOR_RED, c.COLOR_RED)
+        c.init_pair(4, c.COLOR_BLUE, c.COLOR_BLUE)
+        c.init_pair(5, c.COLOR_RED, c.COLOR_RED)
 
     def refresh_game_map(self, game_map):
         map_caption = '/'.join((SERVER_NAME, 'game', str(bot_id)))
