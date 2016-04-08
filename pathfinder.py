@@ -14,8 +14,8 @@ EAST = 1
 SOUTH = 2
 WEST = 3
 
-MAP_HEIGHT = 50
-MAP_WIDTH = 50
+MAP_HEIGHT = 80
+MAP_WIDTH = 80
 
 post('http://localhost:44822/admin',
      dict(
@@ -26,7 +26,7 @@ post('http://localhost:44822/admin',
          blocks=10,
          maze_game=True,
          battery_game=True,
-         # laser_game=True
+         laser_game=True
      ))
 
 
@@ -39,7 +39,7 @@ class Map(tuple):
 
 def compute_orientation_price(start_orientation: int, wanted_orientation: int) -> int:
     """
-    Returns price o rotating bot from start orientation to wanted_orientation.
+    Return price o rotating bot from start orientation to wanted_orientation.
     :param start_orientation: Starting orientation of rotating.
     :param wanted_orientation: Ending orientation of rotating.
     :return: price of rotating
@@ -51,10 +51,10 @@ def compute_orientation_price(start_orientation: int, wanted_orientation: int) -
 
 def get_orientation_position_to_position(from_position: tuple, to_position: tuple) -> int:
     """
-    From given positions returns oriented orientation.
+    From given positions return oriented orientation.
     :param from_position: Starting position.
     :param to_position: Ending position.
-    :return:
+    :return: orientation
     """
     if from_position[0] == to_position[0] and from_position[1] == to_position[1] + 1:
         return NORTH
@@ -66,7 +66,7 @@ def get_orientation_position_to_position(from_position: tuple, to_position: tupl
         return EAST
 
 
-def get_available_closest_positions(position: tuple) -> list:
+def get_near_positions(position: tuple) -> list:
     """
     Get all possible positions around the given position.
     :param position:
@@ -86,8 +86,7 @@ def get_available_closest_positions(position: tuple) -> list:
 
 
 def get_field_occurrences(field_type: int, game_map: Map, **other_conditions: dict) -> list:
-    """
-    Returns all occurrences of field_type in given map.
+    """Return all occurrences of field_type in given map.
     If is other_conditions filled, returns only field, which includes all items from other_conditions.
     :param field_type: Type of field
     :param game_map: Game Map
@@ -110,8 +109,17 @@ def get_field_occurrences(field_type: int, game_map: Map, **other_conditions: di
     return found_with_conditions
 
 
-def get_path(game_map: Map, start_bot_position: tuple, start_orientation: int, BATTERY_GAME: bool, LASER_GAME: bool):
-    def rate_game_map(game_map, position=start_bot_position, last_direction=start_orientation):
+def solve(game_map: Map, start_bot_position: tuple, start_orientation: int, batteries: bool, lasers: bool):
+    def rate_game_map(game_map: Map, position: tuple=start_bot_position, last_direction: int=start_orientation):
+        """Rate game map by price of actions:
+            step - 1 + 1 if batteries are enabled
+            rotate - 1
+            laser to destroy block - 2 battery levels for laser + 1 for step on destroyed block
+        :param game_map: Map instance for rating
+        :param position: started position for rating (start position of bot)
+        :param last_direction: direction of bot
+        :return: rated game map
+        """
         price = 0
 
         data = [(price, position, last_direction)]
@@ -121,15 +129,14 @@ def get_path(game_map: Map, start_bot_position: tuple, start_orientation: int, B
 
             field = game_map[position]
 
-            if field.get('field') == BLOCK and not LASER_GAME:
+            if field.get('field') == BLOCK and not lasers:
                 field.update(dict(price=-1))
                 continue
 
             # update the price
             field.update(dict(price=price))
 
-            available_positions = get_available_closest_positions(position)
-            for new_position in available_positions:
+            for new_position in get_near_positions(position):
                 new_field = game_map[new_position]
                 assert isinstance(new_field, dict)
 
@@ -146,8 +153,8 @@ def get_path(game_map: Map, start_bot_position: tuple, start_orientation: int, B
                         price,  # price of before field
                         1,  # price for step
                         orientation_price,  # price of changing orientation
-                        1 if BATTERY_GAME else 0,  # price of battery drain for step
-                        2 + 1 if LASER_GAME and new_field.get('field') == BLOCK else 0,
+                        1 if batteries else 0,  # price of battery drain for step
+                        (2 + 1) if lasers and new_field.get('field') == BLOCK else 0,
                         # price of charging battery for laser + firing (only if is target BLOCK)
                     ))
 
@@ -158,18 +165,38 @@ def get_path(game_map: Map, start_bot_position: tuple, start_orientation: int, B
 
         return game_map
 
+    def create_path_from_rated_game_map(game_map: Map, target_position: tuple):
+        target_price = game_map[target_position].get('price')
+        assert isinstance(target_price, int) and target_price > 0
+
+        actual_position = target_position
+
+        path = [target_position]
+        while actual_position != start_bot_position:  # and price != target_price:
+            price, next_position = min(
+                {game_map[pos].get('price'): pos for pos in get_near_positions(actual_position) if
+                 pos not in path}.items())
+
+            path.append(next_position)
+            actual_position = next_position
+        return tuple(reversed(path))
+
     rate_game_map(game_map, start_bot_position, start_orientation)
 
     treasure_prices = {game_map[position].get('price'): position for position in
                        get_field_occurrences(TREASURE, game_map)}
 
-    print(sorted(treasure_prices.items()))
+    treasure_price, treasure_position = min(treasure_prices.items())
+    path = create_path_from_rated_game_map(game_map, treasure_position)
+
+    print('From {} to {} through {} steps: {}.'.format(start_bot_position, treasure_position, len(path), path))
     return game_map
 
 
 def main():
     bot_id = get('http://localhost:44822/init').json().get('bot_id')
     game = get('http://localhost:44822/game/{}'.format(bot_id)).json()
+
     game_map = game.get('map')
 
     LASER_GAME = game.get('game_info', {}).get('laser_game', False)
@@ -179,7 +206,8 @@ def main():
     bot_fields = get_field_occurrences(LASER_BATTERY_BOT if BATTERY_GAME or LASER_GAME else BOT, game_map,
                                        your_bot=True)
 
-    rated_map = get_path(game_map, bot_fields[0], game_map[bot_fields[0]].get('orientation'), BATTERY_GAME, LASER_GAME)
+    rated_map = solve(game_map, bot_fields[0], game_map[bot_fields[0]].get('orientation'), BATTERY_GAME,
+                      LASER_GAME)
 
 
 if __name__ == "__main__":
