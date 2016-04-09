@@ -1,4 +1,6 @@
 from bisect import insort
+from functools import lru_cache
+from pprint import pprint
 
 from requests import post, get
 
@@ -16,8 +18,8 @@ EAST = 1
 SOUTH = 2
 WEST = 3
 
-MAP_HEIGHT = 50
-MAP_WIDTH = 50
+MAP_HEIGHT = 60
+MAP_WIDTH = 60
 
 
 class Map(tuple):
@@ -111,9 +113,11 @@ class PathFinder():
     def __init__(self, game: dict):
         self._game = game
         self._game_map = Map(game.get('map'))
+        # self._game_map = Map(([{'price': 73, 'field': 0}, {'price': 71, 'field': 0}, {'price': 69, 'field': 0}, {'price': 67, 'field': 0}, {'price': 65, 'field': 0}, {'price': 63, 'field': 0}, {'price': 61, 'field': 0}, {'price': 59, 'field': 0}, {'price': 57, 'field': 0}, {'price': 55, 'field': 0}, {'price': 53, 'field': 0}, {'price': 51, 'field': 0}, {'price': 49, 'field': 0}, {'price': 47, 'field': 3}, {'price': 42, 'field': 0}, {'price': 40, 'field': 0}, {'price': 37, 'field': 0}, {'price': 41, 'field': 0}, {'price': 37, 'field': 0}, {'price': 41, 'field': 0}], [{'price': 83, 'field': 3}, {'price': 81, 'field': 3}, {'price': 79, 'field': 3}, {'price': 78, 'field': 3}, {'price': 75, 'field': 3}, {'price': 73, 'field': 3}, {'price': 71, 'field': 3}, {'price': 69, 'field': 3}, {'price': 67, 'field': 3}, {'price': 66, 'field': 3}, {'price': 58, 'field': 0}, {'price': 59, 'field': 3}, {'price': 52, 'field': 0}, {'price': 53, 'field': 3}, {'price': 45, 'field': 0}, {'price': 46, 'field': 3}, {'price': 35, 'field': 0}, {'price': 42, 'field': 3}, {'price': 35, 'field': 3}, {'price': 41, 'field': 3}], [{'price': 77, 'field': 0}, {'price': 75, 'field': 0}, {'price': 72, 'field': 0}, {'price': 78, 'field': 3}, {'price': 67, 'field': 0}, {'price': 65, 'field': 0}, {'price': 63, 'field': 0}, {'price': 61, 'field': 0}, {'price': 58, 'field': 0}, {'price': 64, 'field': 3}, {'price': 56, 'field': 0}, {'price': 57, 'field': 3}, {'price': 49, 'field': 0}, {'price': 50, 'field': 3}, {'price': 42, 'field': 0}, {'price': 43, 'field': 3}, {'price': 33, 'field': 0}, {'price': 36, 'field': 0}, {'price': 30, 'field': 0}, {'price': 34, 'field': 0}], [{'price': 83, 'field': 3}, {'price': 81, 'field': 3}, {'price': 70, 'field': 0}, {'price': 78, 'field': 3}, {'price': 70, 'field': 0}, {'price': 71, 'field': 3}, {'price': 60, 'field': 0}, {'price': 67, 'field': 3}, {'price': 56, 'field': 0}, {'price': 62, 'field': 3}, {'price': 53, 'field': 0}, {'price': 55, 'field': 3}, {'price': 47, 'field': 0}, {'price': 48, 'field': 3}, {'price': 40, 'field': 0}, {'price': 41, 'field': 3}, {'price': 31, 'field': 0}, {'price': 39, 'field': 3}, {'price': 28, 'field': 0}, {'price': 32, 'field': 0}], [{'price': 73, 'field': 0}, {'price': 71, 'field': 0}, {'price': 68, 'field': 0}, {'price': 74, 'field': 3}, {'price': 67, 'field': 0}, {'price': 68, 'field': 3}, {'price': 58, 'field': 0}, {'price': 64, 'field': 3}, {'price': 54, 'field': 0}, {'price': 60, 'field': 3}, {'price': 51, 'field': 0}, {'price': 49, 'field': 3}, {'price': 44, 'field': 0}, {'price': 46, 'field': 3}, {'price': 38, 'field': 0}, {'price': 39, 'field': 3}, {'price': 29, 'field': 0}, {'price': 36, 'field': 3}, {'price': 26, 'field': 0}, {'price': 30, 'field': 0}], [{'price': 76, 'field': 0}, {'price': 77, 'field': 3}, {'price': 66, 'field': 0}, {'price': 77, 'field': 3}, {'price': 67, 'field': 3}, {'price': 66, 'field': 3}, {'price': 56, 'field': 0}, {'price': 62, 'field': 3}, {'price': 52, 'field': 0}, {'price': 62, 'field': 3}, {'price': 62, 'field': 1}, {'price': 55, 'field': 3}, {'price': 50, 'field': 3}, {'price': 44, 'field': 3}, {'price': 36, 'field': 0}, {'price': 37, 'field': 3}, {'price': 27, 'field': 0}, {'price': 34, 'field': 3}, {'price': 24, 'field': 0}, {'price': 28, 'field': 0}], [{'price': 76, 'field': 1}, {'price': 74, 'field': 3}, {'price': 64, 'field': 0}, {'price': 70, 'field': 3}, {'price': 60, 'field': 0}, {'price': 66, 'field': 3}, {'price': 54, 'field': 0}, {'price': 60, 'field': 3}, {'price': 50, 'field': 0}, {'price': 56, 'field': 3}, {'price': 48, 'field': 0}, {'price': 49, 'field': 3}, {'price': 41, 'field': 0}, {'price': 42, 'field': 3}, {'price': 34, 'field': 0}, {'price': 35, 'field': 3}, {'price': 25, 'field': 0}, {'price': 32, 'field': 3}, {'price': 22, 'field': 0}, {'price': 26, 'field': 0}], [{'price': 70, 'field': 0}, {'price': 70, 'field': 3}, {'price': 62, 'field': 0}, {'price': 68, 'field': 3}, {'price': 58, 'field': 0}, {'price': 64, 'field': 3}, {'price': 52, 'field': 0}, {'price': 58, 'field': 3}, {'price': 48, 'field': 0}, {'price': 54, 'field': 3}, {'price': 45, 'field': 0}, {'price': 45, 'field': 3}, {'price': 38, 'field': 0}, {'price': 38, 'field': 3}, {'price': 31, 'field': 0}, {'price': 31, 'field': 3}, {'price': 23, 'field': 0}, {'price': 29, 'field': 3}, {'price': 20, 'field': 3}, {'price': 26, 'field': 3}], [{'price': 67, 'field': 0}, {'price': 68, 'field': 3}, {'price': 59, 'field': 0}, {'price': 57, 'field': 0}, {'price': 55, 'field': 0}, {'price': 53, 'field': 0}, {'price': 50, 'field': 0}, {'price': 56, 'field': 3}, {'price': 46, 'field': 0}, {'price': 43, 'field': 0}, {'price': 41, 'field': 0}, {'price': 39, 'field': 3}, {'price': 34, 'field': 0}, {'price': 32, 'field': 3}, {'price': 27, 'field': 0}, {'price': 25, 'field': 3}, {'price': 20, 'field': 0}, {'price': 18, 'field': 0}, {'price': 15, 'field': 0}, {'price': 19, 'field': 0}], [{'price': 69, 'field': 3}, {'price': 67, 'field': 3}, {'price': 65, 'field': 3}, {'price': 63, 'field': 3}, {'price': 61, 'field': 3}, {'price': 59, 'field': 3}, {'price': 48, 'field': 0}, {'price': 56, 'field': 3}, {'price': 44, 'field': 0}, {'price': 50, 'field': 3}, {'price': 47, 'field': 3}, {'price': 45, 'field': 3}, {'price': 37, 'field': 0}, {'price': 38, 'field': 3}, {'price': 30, 'field': 0}, {'price': 31, 'field': 3}, {'price': 23, 'field': 0}, {'price': 24, 'field': 3}, {'price': 13, 'field': 0}, {'price': 17, 'field': 0}], [{'price': 59, 'field': 0}, {'price': 57, 'field': 0}, {'price': 55, 'field': 0}, {'price': 53, 'field': 0}, {'price': 51, 'field': 0}, {'price': 49, 'field': 0}, {'price': 46, 'field': 0}, {'price': 52, 'field': 3}, {'price': 41, 'field': 0}, {'price': 39, 'field': 0}, {'price': 37, 'field': 0}, {'price': 37, 'field': 0}, {'price': 34, 'field': 0}, {'price': 35, 'field': 3}, {'price': 27, 'field': 0}, {'price': 28, 'field': 3}, {'price': 20, 'field': 0}, {'price': 21, 'field': 3}, {'price': 11, 'field': 0}, {'price': 15, 'field': 0}], [{'price': 62, 'field': 0}, {'price': 68, 'field': 3}, {'price': 60, 'field': 0}, {'price': 61, 'field': 3}, {'price': 54, 'field': 0}, {'price': 55, 'field': 3}, {'price': 44, 'field': 0}, {'price': 53, 'field': 3}, {'price': 47, 'field': 3}, {'price': 45, 'field': 3}, {'price': 43, 'field': 3}, {'price': 41, 'field': 3}, {'price': 32, 'field': 0}, {'price': 33, 'field': 3}, {'price': 25, 'field': 0}, {'price': 26, 'field': 3}, {'price': 18, 'field': 0}, {'price': 19, 'field': 3}, {'price': 9, 'field': 0}, {'price': 13, 'field': 0}], [{'price': 58, 'field': 0}, {'price': 66, 'field': 3}, {'price': 58, 'field': 0}, {'price': 59, 'field': 3}, {'price': 51, 'field': 0}, {'price': 52, 'field': 3}, {'price': 42, 'field': 0}, {'price': 48, 'field': 3}, {'price': 39, 'field': 0}, {'price': 37, 'field': 0}, {'price': 35, 'field': 0}, {'price': 32, 'field': 0}, {'price': 29, 'field': 0}, {'price': 31, 'field': 3}, {'price': 23, 'field': 0}, {'price': 24, 'field': 3}, {'price': 16, 'field': 0}, {'price': 17, 'field': 3}, {'price': 7, 'field': 0}, {'price': 11, 'field': 0}], [{'price': 56, 'field': 0}, {'price': 63, 'field': 3}, {'price': 55, 'field': 0}, {'price': 55, 'field': 3}, {'price': 48, 'field': 0}, {'price': 48, 'field': 3}, {'price': 40, 'field': 0}, {'price': 46, 'field': 3}, {'price': 40, 'field': 3}, {'price': 38, 'field': 3}, {'price': 36, 'field': 3}, {'price': 30, 'field': 3}, {'name': 'Terry', 'battery_level': 10, 'orientation': 0, 'field': 4, 'price': -1}, {'price': 27, 'field': 3}, {'price': 21, 'field': 0}, {'price': 22, 'field': 3}, {'price': 14, 'field': 0}, {'price': 15, 'field': 3}, {'price': 5, 'field': 0}, {'price': 9, 'field': 0}], [{'price': 54, 'field': 0}, {'price': 60, 'field': 3}, {'price': 51, 'field': 0}, {'price': 49, 'field': 3}, {'price': 44, 'field': 0}, {'price': 42, 'field': 3}, {'price': 37, 'field': 0}, {'price': 35, 'field': 3}, {'price': 30, 'field': 0}, {'price': 28, 'field': 0}, {'price': 26, 'field': 0}, {'price': 24, 'field': 0}, {'price': 22, 'field': 0}, {'price': 20, 'field': 0}, {'price': 20, 'field': 0}, {'price': 18, 'field': 3}, {'price': 11, 'field': 0}, {'price': 11, 'field': 3}, {'price': 3, 'field': 0}, {'price': 7, 'field': 0}], [{'price': 52, 'field': 0}, {'price': 58, 'field': 3}, {'price': 57, 'field': 3}, {'price': 55, 'field': 3}, {'price': 51, 'field': 3}, {'price': 49, 'field': 3}, {'price': 47, 'field': 3}, {'price': 41, 'field': 3}, {'name': 'Mark', 'battery_level': 10, 'orientation': 0, 'field': 4, 'price': -1}, {'price': 38, 'field': 3}, {'price': 36, 'field': 3}, {'price': 34, 'field': 3}, {'price': 32, 'field': 3}, {'price': 26, 'field': 3}, {'price': 17, 'field': 3}, {'price': 12, 'field': 3}, {'price': 7, 'field': 0}, {'price': 5, 'field': 3}, {'name': 'Michael', 'battery_level': 10, 'orientation': 0, 'field': 4, 'your_bot': True, 'price': -1}, {'price': 4, 'field': 0}], [{'price': 49, 'field': 0}, {'price': 47, 'field': 0}, {'price': 45, 'field': 0}, {'price': 43, 'field': 0}, {'price': 41, 'field': 0}, {'price': 39, 'field': 0}, {'price': 37, 'field': 0}, {'price': 35, 'field': 3}, {'price': 30, 'field': 0}, {'price': 28, 'field': 0}, {'price': 26, 'field': 0}, {'price': 24, 'field': 0}, {'price': 22, 'field': 0}, {'price': 20, 'field': 0}, {'price': 20, 'field': 0}, {'price': 18, 'field': 3}, {'price': 11, 'field': 0}, {'price': 11, 'field': 3}, {'price': 3, 'field': 0}, {'price': 7, 'field': 0}], [{'price': 52, 'field': 0}, {'price': 58, 'field': 3}, {'price': 55, 'field': 3}, {'price': 53, 'field': 3}, {'price': 51, 'field': 3}, {'price': 49, 'field': 3}, {'price': 47, 'field': 3}, {'price': 41, 'field': 3}, {'price': 33, 'field': 0}, {'price': 39, 'field': 3}, {'price': 36, 'field': 3}, {'price': 34, 'field': 3}, {'price': 32, 'field': 3}, {'price': 31, 'field': 3}, {'price': 28, 'field': 3}, {'price': 23, 'field': 3}, {'price': 14, 'field': 0}, {'price': 16, 'field': 3}, {'price': 5, 'field': 0}, {'price': 9, 'field': 0}], [{'price': 54, 'field': 0}, {'price': 51, 'field': 0}, {'price': 49, 'field': 0}, {'price': 47, 'field': 0}, {'price': 45, 'field': 0}, {'price': 43, 'field': 0}, {'price': 41, 'field': 0}, {'price': 45, 'field': 3}, {'price': 35, 'field': 0}, {'price': 32, 'field': 0}, {'price': 30, 'field': 0}, {'price': 28, 'field': 0}, {'price': 26, 'field': 0}, {'price': 24, 'field': 0}, {'price': 22, 'field': 0}, {'price': 26, 'field': 3}, {'price': 16, 'field': 0}, {'price': 17, 'field': 3}, {'price': 7, 'field': 0}, {'price': 11, 'field': 0}], [{'price': 57, 'field': 0}, {'price': 55, 'field': 0}, {'price': 53, 'field': 0}, {'price': 51, 'field': 0}, {'price': 49, 'field': 0}, {'price': 47, 'field': 0}, {'price': 44, 'field': 0}, {'price': 50, 'field': 3}, {'price': 50, 'field': 1}, {'price': 36, 'field': 0}, {'price': 34, 'field': 0}, {'price': 32, 'field': 0}, {'price': 30, 'field': 0}, {'price': 28, 'field': 0}, {'price': 25, 'field': 0}, {'price': 28, 'field': 3}, {'price': 18, 'field': 0}, {'price': 19, 'field': 3}, {'price': 9, 'field': 0}, {'price': 13, 'field': 0}]))
         self._map_rating = MapRating(game, self._game_map)
-        _, self._target_position = min({self._game_map[position].get('price'): position for position in
-                                        get_field_occurrences(FieldType.TREASURE, self._game_map)}.items())
+        treasures = {self._game_map[position].get('price'): position for position in
+                     get_field_occurrences(FieldType.TREASURE, self._game_map)}
+        _, self._target_position = min(treasures.items())
 
     def get_path(self):
         return self._resolve_path(
@@ -131,8 +135,12 @@ class PathFinder():
         while actual_position != self._map_rating._start_bot_position:  # and price != target_price:
             near_positions = {game_map[pos].get('price'): pos for pos in get_near_positions(actual_position) if
                               pos not in path}
+            # TODO: small bug in the code.. bugs everywhere
             if not near_positions:
-                print(repr(game_map))
+                print(path)
+                print(actual_position)
+                pprint(list(list((x, y, field.get('price')) for y, field in enumerate(column)) for x, column in
+                            enumerate(game_map)), width=200)
                 exit(1)
             price, next_position = min(near_positions.items())
 
@@ -145,8 +153,8 @@ post('http://localhost:44822/admin',
      dict(
          map_height=MAP_HEIGHT,
          map_width=MAP_WIDTH,
-         bots=1,
-         treasures=5,
+         bots=2,
+         treasures=2,
          blocks=10,
          maze_game=True,
          battery_game=True,
@@ -154,7 +162,7 @@ post('http://localhost:44822/admin',
      ))
 
 
-
+@lru_cache(maxsize=12)
 def compute_orientation_price(start_orientation: int, wanted_orientation: int) -> int:
     """
     Return price o rotating bot from start orientation to wanted_orientation.
@@ -174,33 +182,32 @@ def get_orientation_position_to_position(from_position: tuple, to_position: tupl
     :param to_position: Ending position.
     :return: orientation
     """
-    if from_position[0] == to_position[0] and from_position[1] == to_position[1] + 1:
+    from_position_x, from_position_y = from_position
+    to_position_x, to_position_y = to_position
+
+    if from_position_x == to_position_x and from_position_y == to_position_y + 1:
         return NORTH
-    elif from_position[0] == to_position[0] and from_position[1] == to_position[1] - 1:
+    elif from_position_x == to_position_x and from_position_y == to_position_y - 1:
         return SOUTH
-    elif from_position[0] == to_position[0] + 1 and from_position[1] == to_position[1]:
+    elif from_position_x == to_position_x + 1 and from_position_y == to_position_y:
         return WEST
-    elif from_position[0] == to_position[0] - 1 and from_position[1] == to_position[1]:
+    elif from_position_x == to_position_x - 1 and from_position_y == to_position_y:
         return EAST
 
 
-def get_near_positions(position: tuple) -> list:
+def get_near_positions(position: tuple):
     """
     Get all possible positions around the given position.
     :param position:
     :return:
     """
-    available_closest_positions = []
-    for x, y in (
-            (position[0], position[1] + 1),
-            (position[0], position[1] - 1),
-            (position[0] + 1, position[1]),
-            (position[0] - 1, position[1])
-    ):
-        if 0 <= x < MAP_HEIGHT and 0 <= y < MAP_WIDTH:
-            available_closest_positions.append((x, y))
 
-    return available_closest_positions
+    return ((x, y) for x, y in (
+        (position[0], position[1] + 1),
+        (position[0], position[1] - 1),
+        (position[0] + 1, position[1]),
+        (position[0] - 1, position[1])
+    ) if 0 <= x < MAP_HEIGHT and 0 <= y < MAP_WIDTH)
 
 
 def get_field_occurrences(field_type: int, game_map: Map, **other_conditions: dict) -> list:
@@ -240,11 +247,10 @@ def solve(game: dict):
 
 
 def main():
-    while True:
-        bot_id = get('http://localhost:44822/init').json().get('bot_id')
-        game = get('http://localhost:44822/game/{}'.format(bot_id)).json()
-        solve(game)
-        break
+    bot_id = get('http://localhost:44822/init').json().get('bot_id')
+    game = get('http://localhost:44822/game/{}'.format(bot_id)).json()
+
+    solve(game)
 
 
 if __name__ == "__main__":
