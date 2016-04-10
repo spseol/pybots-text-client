@@ -1,8 +1,9 @@
+import time
 from bisect import insort
 from functools import lru_cache
-from pprint import pprint
+from operator import itemgetter
 
-from requests import post, get
+from requests import get, post
 
 
 class FieldType():
@@ -18,9 +19,6 @@ EAST = 1
 SOUTH = 2
 WEST = 3
 
-MAP_HEIGHT = 60
-MAP_WIDTH = 60
-
 
 class Map(tuple):
     def __getitem__(self, position) -> dict:
@@ -29,12 +27,21 @@ class Map(tuple):
         return super().__getitem__(position[0])[position[1]]
 
 
-class MapRating():
+class MapRating:
+    """
+    Class for rating game.
+    """
     def __init__(self, game: dict, game_map: Map):
         self._game = game
         self._game_map = game_map
-        self._batteries_enabled = game.get('game_info', {}).get('battery_game', False)
-        self._lasers_enabled = game.get('game_info', {}).get('laser_game', False)
+
+        game_info = game.get('game_info', {})
+        self._batteries_enabled = game_info.get('battery_game', False)
+        self._lasers_enabled = game_info.get('laser_game', False)
+
+        self._map_height, self._map_width = game_info.get('map_resolutions').get('height'), \
+                                            game_info.get('map_resolutions').get('width')
+
         self._start_bot_position = next(iter(
             get_field_occurrences(
                 FieldType.LASER_BATTERY_BOT if self._batteries_enabled or self._lasers_enabled else FieldType.BOT,
@@ -44,6 +51,9 @@ class MapRating():
         self._rated_map = None
 
     def get_rated_map(self):
+        """
+        Return cached rated game map.
+        """
         if not self._rated_map:
             self._rated_map = self.rate_game_map(
                 self._game_map,
@@ -53,7 +63,8 @@ class MapRating():
         return self._rated_map
 
     def rate_game_map(self, game_map: Map, start_position: tuple, last_direction: int):
-        """Rate game map by price of actions:
+        """
+        Rate game map by price of actions:
             step - 1 + 1 if batteries are enabled
             rotate - 1
             laser to destroy block - 2 battery levels for laser + 1 for step on destroyed block
@@ -78,8 +89,8 @@ class MapRating():
 
             # update the price
             field.update(dict(price=price))
-
-            for new_position in get_near_positions(position):
+            near_positions = self.get_near_positions(position)
+            for new_position in near_positions:
                 new_field = game_map[new_position]
                 assert isinstance(new_field, dict)
 
@@ -97,7 +108,7 @@ class MapRating():
                         1,  # price for step
                         orientation_price,  # price of changing orientation
                         1 if self._batteries_enabled else 0,  # price of battery drain for step
-                        (2 + 1) if self._lasers_enabled and new_field.get('field') == FieldType.BLOCK else 0,
+                        2 + 1 if self._lasers_enabled and new_field.get('field') == FieldType.BLOCK else 0,
                         # price of charging battery for laser + firing (only if is target BLOCK)
                     ))
 
@@ -108,12 +119,25 @@ class MapRating():
 
         return game_map
 
+    def get_near_positions(self, position: tuple):
+        """
+        Get all possible positions around the given position.
+        :param position:
+        :return:
+        """
+
+        return ((x, y) for x, y in (
+            (position[0], position[1] + 1),
+            (position[0], position[1] - 1),
+            (position[0] + 1, position[1]),
+            (position[0] - 1, position[1])
+        ) if 0 <= x < self._map_height and 0 <= y < self._map_width)
+
 
 class PathFinder():
     def __init__(self, game: dict):
         self._game = game
         self._game_map = Map(game.get('map'))
-        # self._game_map = Map(([{'price': 73, 'field': 0}, {'price': 71, 'field': 0}, {'price': 69, 'field': 0}, {'price': 67, 'field': 0}, {'price': 65, 'field': 0}, {'price': 63, 'field': 0}, {'price': 61, 'field': 0}, {'price': 59, 'field': 0}, {'price': 57, 'field': 0}, {'price': 55, 'field': 0}, {'price': 53, 'field': 0}, {'price': 51, 'field': 0}, {'price': 49, 'field': 0}, {'price': 47, 'field': 3}, {'price': 42, 'field': 0}, {'price': 40, 'field': 0}, {'price': 37, 'field': 0}, {'price': 41, 'field': 0}, {'price': 37, 'field': 0}, {'price': 41, 'field': 0}], [{'price': 83, 'field': 3}, {'price': 81, 'field': 3}, {'price': 79, 'field': 3}, {'price': 78, 'field': 3}, {'price': 75, 'field': 3}, {'price': 73, 'field': 3}, {'price': 71, 'field': 3}, {'price': 69, 'field': 3}, {'price': 67, 'field': 3}, {'price': 66, 'field': 3}, {'price': 58, 'field': 0}, {'price': 59, 'field': 3}, {'price': 52, 'field': 0}, {'price': 53, 'field': 3}, {'price': 45, 'field': 0}, {'price': 46, 'field': 3}, {'price': 35, 'field': 0}, {'price': 42, 'field': 3}, {'price': 35, 'field': 3}, {'price': 41, 'field': 3}], [{'price': 77, 'field': 0}, {'price': 75, 'field': 0}, {'price': 72, 'field': 0}, {'price': 78, 'field': 3}, {'price': 67, 'field': 0}, {'price': 65, 'field': 0}, {'price': 63, 'field': 0}, {'price': 61, 'field': 0}, {'price': 58, 'field': 0}, {'price': 64, 'field': 3}, {'price': 56, 'field': 0}, {'price': 57, 'field': 3}, {'price': 49, 'field': 0}, {'price': 50, 'field': 3}, {'price': 42, 'field': 0}, {'price': 43, 'field': 3}, {'price': 33, 'field': 0}, {'price': 36, 'field': 0}, {'price': 30, 'field': 0}, {'price': 34, 'field': 0}], [{'price': 83, 'field': 3}, {'price': 81, 'field': 3}, {'price': 70, 'field': 0}, {'price': 78, 'field': 3}, {'price': 70, 'field': 0}, {'price': 71, 'field': 3}, {'price': 60, 'field': 0}, {'price': 67, 'field': 3}, {'price': 56, 'field': 0}, {'price': 62, 'field': 3}, {'price': 53, 'field': 0}, {'price': 55, 'field': 3}, {'price': 47, 'field': 0}, {'price': 48, 'field': 3}, {'price': 40, 'field': 0}, {'price': 41, 'field': 3}, {'price': 31, 'field': 0}, {'price': 39, 'field': 3}, {'price': 28, 'field': 0}, {'price': 32, 'field': 0}], [{'price': 73, 'field': 0}, {'price': 71, 'field': 0}, {'price': 68, 'field': 0}, {'price': 74, 'field': 3}, {'price': 67, 'field': 0}, {'price': 68, 'field': 3}, {'price': 58, 'field': 0}, {'price': 64, 'field': 3}, {'price': 54, 'field': 0}, {'price': 60, 'field': 3}, {'price': 51, 'field': 0}, {'price': 49, 'field': 3}, {'price': 44, 'field': 0}, {'price': 46, 'field': 3}, {'price': 38, 'field': 0}, {'price': 39, 'field': 3}, {'price': 29, 'field': 0}, {'price': 36, 'field': 3}, {'price': 26, 'field': 0}, {'price': 30, 'field': 0}], [{'price': 76, 'field': 0}, {'price': 77, 'field': 3}, {'price': 66, 'field': 0}, {'price': 77, 'field': 3}, {'price': 67, 'field': 3}, {'price': 66, 'field': 3}, {'price': 56, 'field': 0}, {'price': 62, 'field': 3}, {'price': 52, 'field': 0}, {'price': 62, 'field': 3}, {'price': 62, 'field': 1}, {'price': 55, 'field': 3}, {'price': 50, 'field': 3}, {'price': 44, 'field': 3}, {'price': 36, 'field': 0}, {'price': 37, 'field': 3}, {'price': 27, 'field': 0}, {'price': 34, 'field': 3}, {'price': 24, 'field': 0}, {'price': 28, 'field': 0}], [{'price': 76, 'field': 1}, {'price': 74, 'field': 3}, {'price': 64, 'field': 0}, {'price': 70, 'field': 3}, {'price': 60, 'field': 0}, {'price': 66, 'field': 3}, {'price': 54, 'field': 0}, {'price': 60, 'field': 3}, {'price': 50, 'field': 0}, {'price': 56, 'field': 3}, {'price': 48, 'field': 0}, {'price': 49, 'field': 3}, {'price': 41, 'field': 0}, {'price': 42, 'field': 3}, {'price': 34, 'field': 0}, {'price': 35, 'field': 3}, {'price': 25, 'field': 0}, {'price': 32, 'field': 3}, {'price': 22, 'field': 0}, {'price': 26, 'field': 0}], [{'price': 70, 'field': 0}, {'price': 70, 'field': 3}, {'price': 62, 'field': 0}, {'price': 68, 'field': 3}, {'price': 58, 'field': 0}, {'price': 64, 'field': 3}, {'price': 52, 'field': 0}, {'price': 58, 'field': 3}, {'price': 48, 'field': 0}, {'price': 54, 'field': 3}, {'price': 45, 'field': 0}, {'price': 45, 'field': 3}, {'price': 38, 'field': 0}, {'price': 38, 'field': 3}, {'price': 31, 'field': 0}, {'price': 31, 'field': 3}, {'price': 23, 'field': 0}, {'price': 29, 'field': 3}, {'price': 20, 'field': 3}, {'price': 26, 'field': 3}], [{'price': 67, 'field': 0}, {'price': 68, 'field': 3}, {'price': 59, 'field': 0}, {'price': 57, 'field': 0}, {'price': 55, 'field': 0}, {'price': 53, 'field': 0}, {'price': 50, 'field': 0}, {'price': 56, 'field': 3}, {'price': 46, 'field': 0}, {'price': 43, 'field': 0}, {'price': 41, 'field': 0}, {'price': 39, 'field': 3}, {'price': 34, 'field': 0}, {'price': 32, 'field': 3}, {'price': 27, 'field': 0}, {'price': 25, 'field': 3}, {'price': 20, 'field': 0}, {'price': 18, 'field': 0}, {'price': 15, 'field': 0}, {'price': 19, 'field': 0}], [{'price': 69, 'field': 3}, {'price': 67, 'field': 3}, {'price': 65, 'field': 3}, {'price': 63, 'field': 3}, {'price': 61, 'field': 3}, {'price': 59, 'field': 3}, {'price': 48, 'field': 0}, {'price': 56, 'field': 3}, {'price': 44, 'field': 0}, {'price': 50, 'field': 3}, {'price': 47, 'field': 3}, {'price': 45, 'field': 3}, {'price': 37, 'field': 0}, {'price': 38, 'field': 3}, {'price': 30, 'field': 0}, {'price': 31, 'field': 3}, {'price': 23, 'field': 0}, {'price': 24, 'field': 3}, {'price': 13, 'field': 0}, {'price': 17, 'field': 0}], [{'price': 59, 'field': 0}, {'price': 57, 'field': 0}, {'price': 55, 'field': 0}, {'price': 53, 'field': 0}, {'price': 51, 'field': 0}, {'price': 49, 'field': 0}, {'price': 46, 'field': 0}, {'price': 52, 'field': 3}, {'price': 41, 'field': 0}, {'price': 39, 'field': 0}, {'price': 37, 'field': 0}, {'price': 37, 'field': 0}, {'price': 34, 'field': 0}, {'price': 35, 'field': 3}, {'price': 27, 'field': 0}, {'price': 28, 'field': 3}, {'price': 20, 'field': 0}, {'price': 21, 'field': 3}, {'price': 11, 'field': 0}, {'price': 15, 'field': 0}], [{'price': 62, 'field': 0}, {'price': 68, 'field': 3}, {'price': 60, 'field': 0}, {'price': 61, 'field': 3}, {'price': 54, 'field': 0}, {'price': 55, 'field': 3}, {'price': 44, 'field': 0}, {'price': 53, 'field': 3}, {'price': 47, 'field': 3}, {'price': 45, 'field': 3}, {'price': 43, 'field': 3}, {'price': 41, 'field': 3}, {'price': 32, 'field': 0}, {'price': 33, 'field': 3}, {'price': 25, 'field': 0}, {'price': 26, 'field': 3}, {'price': 18, 'field': 0}, {'price': 19, 'field': 3}, {'price': 9, 'field': 0}, {'price': 13, 'field': 0}], [{'price': 58, 'field': 0}, {'price': 66, 'field': 3}, {'price': 58, 'field': 0}, {'price': 59, 'field': 3}, {'price': 51, 'field': 0}, {'price': 52, 'field': 3}, {'price': 42, 'field': 0}, {'price': 48, 'field': 3}, {'price': 39, 'field': 0}, {'price': 37, 'field': 0}, {'price': 35, 'field': 0}, {'price': 32, 'field': 0}, {'price': 29, 'field': 0}, {'price': 31, 'field': 3}, {'price': 23, 'field': 0}, {'price': 24, 'field': 3}, {'price': 16, 'field': 0}, {'price': 17, 'field': 3}, {'price': 7, 'field': 0}, {'price': 11, 'field': 0}], [{'price': 56, 'field': 0}, {'price': 63, 'field': 3}, {'price': 55, 'field': 0}, {'price': 55, 'field': 3}, {'price': 48, 'field': 0}, {'price': 48, 'field': 3}, {'price': 40, 'field': 0}, {'price': 46, 'field': 3}, {'price': 40, 'field': 3}, {'price': 38, 'field': 3}, {'price': 36, 'field': 3}, {'price': 30, 'field': 3}, {'name': 'Terry', 'battery_level': 10, 'orientation': 0, 'field': 4, 'price': -1}, {'price': 27, 'field': 3}, {'price': 21, 'field': 0}, {'price': 22, 'field': 3}, {'price': 14, 'field': 0}, {'price': 15, 'field': 3}, {'price': 5, 'field': 0}, {'price': 9, 'field': 0}], [{'price': 54, 'field': 0}, {'price': 60, 'field': 3}, {'price': 51, 'field': 0}, {'price': 49, 'field': 3}, {'price': 44, 'field': 0}, {'price': 42, 'field': 3}, {'price': 37, 'field': 0}, {'price': 35, 'field': 3}, {'price': 30, 'field': 0}, {'price': 28, 'field': 0}, {'price': 26, 'field': 0}, {'price': 24, 'field': 0}, {'price': 22, 'field': 0}, {'price': 20, 'field': 0}, {'price': 20, 'field': 0}, {'price': 18, 'field': 3}, {'price': 11, 'field': 0}, {'price': 11, 'field': 3}, {'price': 3, 'field': 0}, {'price': 7, 'field': 0}], [{'price': 52, 'field': 0}, {'price': 58, 'field': 3}, {'price': 57, 'field': 3}, {'price': 55, 'field': 3}, {'price': 51, 'field': 3}, {'price': 49, 'field': 3}, {'price': 47, 'field': 3}, {'price': 41, 'field': 3}, {'name': 'Mark', 'battery_level': 10, 'orientation': 0, 'field': 4, 'price': -1}, {'price': 38, 'field': 3}, {'price': 36, 'field': 3}, {'price': 34, 'field': 3}, {'price': 32, 'field': 3}, {'price': 26, 'field': 3}, {'price': 17, 'field': 3}, {'price': 12, 'field': 3}, {'price': 7, 'field': 0}, {'price': 5, 'field': 3}, {'name': 'Michael', 'battery_level': 10, 'orientation': 0, 'field': 4, 'your_bot': True, 'price': -1}, {'price': 4, 'field': 0}], [{'price': 49, 'field': 0}, {'price': 47, 'field': 0}, {'price': 45, 'field': 0}, {'price': 43, 'field': 0}, {'price': 41, 'field': 0}, {'price': 39, 'field': 0}, {'price': 37, 'field': 0}, {'price': 35, 'field': 3}, {'price': 30, 'field': 0}, {'price': 28, 'field': 0}, {'price': 26, 'field': 0}, {'price': 24, 'field': 0}, {'price': 22, 'field': 0}, {'price': 20, 'field': 0}, {'price': 20, 'field': 0}, {'price': 18, 'field': 3}, {'price': 11, 'field': 0}, {'price': 11, 'field': 3}, {'price': 3, 'field': 0}, {'price': 7, 'field': 0}], [{'price': 52, 'field': 0}, {'price': 58, 'field': 3}, {'price': 55, 'field': 3}, {'price': 53, 'field': 3}, {'price': 51, 'field': 3}, {'price': 49, 'field': 3}, {'price': 47, 'field': 3}, {'price': 41, 'field': 3}, {'price': 33, 'field': 0}, {'price': 39, 'field': 3}, {'price': 36, 'field': 3}, {'price': 34, 'field': 3}, {'price': 32, 'field': 3}, {'price': 31, 'field': 3}, {'price': 28, 'field': 3}, {'price': 23, 'field': 3}, {'price': 14, 'field': 0}, {'price': 16, 'field': 3}, {'price': 5, 'field': 0}, {'price': 9, 'field': 0}], [{'price': 54, 'field': 0}, {'price': 51, 'field': 0}, {'price': 49, 'field': 0}, {'price': 47, 'field': 0}, {'price': 45, 'field': 0}, {'price': 43, 'field': 0}, {'price': 41, 'field': 0}, {'price': 45, 'field': 3}, {'price': 35, 'field': 0}, {'price': 32, 'field': 0}, {'price': 30, 'field': 0}, {'price': 28, 'field': 0}, {'price': 26, 'field': 0}, {'price': 24, 'field': 0}, {'price': 22, 'field': 0}, {'price': 26, 'field': 3}, {'price': 16, 'field': 0}, {'price': 17, 'field': 3}, {'price': 7, 'field': 0}, {'price': 11, 'field': 0}], [{'price': 57, 'field': 0}, {'price': 55, 'field': 0}, {'price': 53, 'field': 0}, {'price': 51, 'field': 0}, {'price': 49, 'field': 0}, {'price': 47, 'field': 0}, {'price': 44, 'field': 0}, {'price': 50, 'field': 3}, {'price': 50, 'field': 1}, {'price': 36, 'field': 0}, {'price': 34, 'field': 0}, {'price': 32, 'field': 0}, {'price': 30, 'field': 0}, {'price': 28, 'field': 0}, {'price': 25, 'field': 0}, {'price': 28, 'field': 3}, {'price': 18, 'field': 0}, {'price': 19, 'field': 3}, {'price': 9, 'field': 0}, {'price': 13, 'field': 0}]))
         self._map_rating = MapRating(game, self._game_map)
         treasures = {self._game_map[position].get('price'): position for position in
                      get_field_occurrences(FieldType.TREASURE, self._game_map)}
@@ -128,39 +152,46 @@ class PathFinder():
     def _resolve_path(self, game_map: Map, target_position: tuple):
         target_price = game_map[target_position].get('price')
         assert isinstance(target_price, int) and target_price > 0
-
         actual_position = target_position
 
         path = [target_position]
+
         while actual_position != self._map_rating._start_bot_position:  # and price != target_price:
-            near_positions = {game_map[pos].get('price'): pos for pos in get_near_positions(actual_position) if
-                              pos not in path}
-            # TODO: small bug in the code.. bugs everywhere
-            if not near_positions:
-                print(path)
-                print(actual_position)
-                pprint(list(list((x, y, field.get('price')) for y, field in enumerate(column)) for x, column in
-                            enumerate(game_map)), width=200)
-                exit(1)
-            price, next_position = min(near_positions.items())
+            # ((price, (x, y)), ...)
+            near_positions = tuple(
+                (game_map[pos].get('price'), pos) for pos in self._map_rating.get_near_positions(actual_position) if
+                pos not in path)
+
+            # two or more positions with same price
+            prices = tuple(map(itemgetter(0), near_positions))
+            if len(prices) != len(set(prices)):
+                next_position = self._get_preferred_position(near_positions, self._map_rating._start_bot_position)
+            else:
+                _, next_position = min(near_positions)
 
             path.append(next_position)
             actual_position = next_position
+
         return tuple(reversed(path))
 
+    @staticmethod
+    def _get_preferred_position(possible_positions, to_position):
+        positions = set(pos[1][0] for pos in possible_positions), set(pos[1][1] for pos in possible_positions)
+        if max(positions[0]) < to_position[0]:
+            x = max(positions[0])
+        elif min(positions[0]) > to_position[0]:
+            x = min(positions[0])
+        else:
+            x = to_position[0]
 
-post('http://localhost:44822/admin',
-     dict(
-         map_height=MAP_HEIGHT,
-         map_width=MAP_WIDTH,
-         bots=2,
-         treasures=2,
-         blocks=10,
-         maze_game=True,
-         battery_game=True,
-         laser_game=True
-     ))
+        if max(positions[1]) < to_position[1]:
+            y = max(positions[1])
+        elif min(positions[1]) > to_position[1]:
+            y = min(positions[1])
+        else:
+            y = to_position[1]
 
+        return x, y
 
 @lru_cache(maxsize=12)
 def compute_orientation_price(start_orientation: int, wanted_orientation: int) -> int:
@@ -194,22 +225,6 @@ def get_orientation_position_to_position(from_position: tuple, to_position: tupl
     elif from_position_x == to_position_x - 1 and from_position_y == to_position_y:
         return EAST
 
-
-def get_near_positions(position: tuple):
-    """
-    Get all possible positions around the given position.
-    :param position:
-    :return:
-    """
-
-    return ((x, y) for x, y in (
-        (position[0], position[1] + 1),
-        (position[0], position[1] - 1),
-        (position[0] + 1, position[1]),
-        (position[0] - 1, position[1])
-    ) if 0 <= x < MAP_HEIGHT and 0 <= y < MAP_WIDTH)
-
-
 def get_field_occurrences(field_type: int, game_map: Map, **other_conditions: dict) -> list:
     """Return all occurrences of field_type in given map.
     If is other_conditions filled, returns only field, which includes all items from other_conditions.
@@ -234,19 +249,30 @@ def get_field_occurrences(field_type: int, game_map: Map, **other_conditions: di
     return found_with_conditions
 
 
-import time
-
-
 def solve(game: dict):
     start = time.process_time()
     path_finder = PathFinder(game)
     path = path_finder.get_path()
     end = time.process_time()
-    print('In {} ms through {} steps from {} to {}.'.format(int((end - start) * 1000), len(path), path[0], path[-1]))
+    print('In {:5} ms through {:3} steps from {:8} to {:8}.'.format(int((end - start) * 1000), len(path), str(path[0]),
+                                                                    str(path[-1])))
+
     return path
 
 
 def main():
+    post('http://localhost:44822/admin',
+         dict(
+             map_height=50,
+             map_width=50,
+             bots=2,
+             treasures=2,
+             blocks=10,
+             maze_game=True,
+             battery_game=True,
+             laser_game=True
+         ))
+
     bot_id = get('http://localhost:44822/init').json().get('bot_id')
     game = get('http://localhost:44822/game/{}'.format(bot_id)).json()
 
@@ -255,5 +281,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
